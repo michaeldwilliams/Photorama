@@ -10,6 +10,9 @@ class PhotosViewController: UIViewController, UICollectionViewDelegate {
     
     var store: PhotoStore!
     let photoDataSource = PhotoDataSource()
+    let imageProcessor = ImageProcessor()
+    let processingQueue = OperationQueue()
+    let thumbnailStore = ThumbnailStore()
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -46,8 +49,15 @@ class PhotosViewController: UIViewController, UICollectionViewDelegate {
         
         let photo = photoDataSource.photos[indexPath.row]
         
+        if let photoID = photo.photoID as NSString?,
+            let thumbnail = thumbnailStore.thumbnail(forKey: photoID),
+            let cell = cell as? PhotoCollectionViewCell {
+            cell.update(with: thumbnail)
+            return
+        }
+        
         // Download the image data, which could take some time
-        store.fetchImage(for: photo, completion: { (result) -> Void in
+        store.fetchImage(for: photo) { (result) -> Void in
                 
             // The index path for the photo might have changed between the
             // time the request started and finished, so find the most
@@ -60,12 +70,35 @@ class PhotosViewController: UIViewController, UICollectionViewDelegate {
             }
             let photoIndexPath = IndexPath(item: photoIndex, section: 0)
             
-            // When the request finishes, only update the cell if it's still visible
-            if let cell = self.collectionView.cellForItem(at: photoIndexPath)
-                as? PhotoCollectionViewCell {
-                cell.update(with: image)
+            self.processingQueue.addOperation {
+                let maxSize = CGSize(width: 200, height: 200)
+                let scaleAction = ImageProcessor.Action.scale(maxSize: maxSize)
+                let faceFuzzAction = ImageProcessor.Action.pixellateFaces
+                let actions = [scaleAction, faceFuzzAction]
+                
+                let thumbnail:UIImage
+                do {
+                    thumbnail = try self.imageProcessor.perform(actions, on: image)
+                } catch {
+                    print("Error: unable to generate filtered thumbnail for \(photo): \(error)")
+                    thumbnail = image
+                    
+                }
+                
+                OperationQueue.main.addOperation {
+                    if let photoID = photo.photoID as NSString? {
+                        self.thumbnailStore.setThumbnail(image: thumbnail, forKey: photoID)
+                    }
+                    
+                    // When the request finishes, only update the cell if it's still visible
+                    if let cell = self.collectionView.cellForItem(at: photoIndexPath)
+                        as? PhotoCollectionViewCell {
+                        cell.update(with: thumbnail)
+                    }
+                }
+
             }
-        })
+        }
     }
     
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
