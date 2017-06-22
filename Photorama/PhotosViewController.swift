@@ -13,6 +13,7 @@ class PhotosViewController: UIViewController, UICollectionViewDelegate {
     let imageProcessor = ImageProcessor()
     let processingQueue = OperationQueue()
     let thumbnailStore = ThumbnailStore()
+    var selectedFilter = ImageProcessor.Filter.none
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -27,6 +28,30 @@ class PhotosViewController: UIViewController, UICollectionViewDelegate {
             
             self.updateDataSource()
         }
+    }
+    
+    @IBAction func filterChoiceChanged(sender: UISegmentedControl) {
+        enum FilterChoice: Int {
+            case none = 0, gloom, sepia, blur
+        }
+        
+        guard let choice = FilterChoice(rawValue: sender.selectedSegmentIndex) else {
+            fatalError("Impossible segment selected: \(sender.selectedSegmentIndex)")
+        }
+        
+        switch choice {
+        case .none:
+            selectedFilter = ImageProcessor.Filter.none
+        case .gloom:
+            selectedFilter = ImageProcessor.Filter.gloom(intensity: 2.0, radius: 10.0)
+        case .sepia:
+            selectedFilter = ImageProcessor.Filter.sepia(intensity: 3.0)
+        case .blur:
+            selectedFilter = ImageProcessor.Filter.blur(radius: 2.0)
+        }
+        
+        thumbnailStore.clearThumbnails()
+        collectionView.reloadData()
     }
     
     private func updateDataSource() {
@@ -74,7 +99,8 @@ class PhotosViewController: UIViewController, UICollectionViewDelegate {
                 let maxSize = CGSize(width: 200, height: 200)
                 let scaleAction = ImageProcessor.Action.scale(maxSize: maxSize)
                 let faceFuzzAction = ImageProcessor.Action.pixellateFaces
-                let actions = [scaleAction, faceFuzzAction]
+                let filterAction = ImageProcessor.Action.filter(self.selectedFilter)
+                let actions = [scaleAction, filterAction, faceFuzzAction]
                 
                 let thumbnail:UIImage
                 do {
@@ -113,6 +139,8 @@ class PhotosViewController: UIViewController, UICollectionViewDelegate {
                     segue.destination as! PhotoInfoViewController
                 destinationVC.photo = photo
                 destinationVC.store = store
+                destinationVC.activeFilter = selectedFilter
+                destinationVC.imageProcessor = imageProcessor
             }
         default:
             preconditionFailure("Unexpected segue identifier.")
